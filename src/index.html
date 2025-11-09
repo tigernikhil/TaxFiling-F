@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClearTax Clone - ITR Filing</title>
+  <style>
+    :root {
+      --color-primary: #1FB8CD;
+      --color-bg: #f8f9fa;
+      --color-text: #2c3e50;
+      --color-border: #dee2e6;
+      --color-success: #28a745;
+      --color-error: #dc3545;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--color-bg); color: var(--color-text); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 20px 0; }
+    .card-header { padding: 20px; border-bottom: 1px solid var(--color-border); font-weight: 600; font-size: 18px; }
+    .card-body { padding: 20px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s; }
+    .btn-primary { background: var(--color-primary); color: white; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary { background: #6c757d; color: white; }
+    .btn-outline { background: white; border: 1px solid var(--color-border); color: var(--color-text); }
+    .form-control { width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; margin: 8px 0; font-size: 14px; }
+    .form-label { display: block; margin: 10px 0 5px; font-weight: 500; font-size: 14px; }
+    .status { padding: 8px 12px; border-radius: 4px; font-size: 13px; display: inline-block; margin: 8px 0; }
+    .status-success { background: #d4edda; color: #155724; }
+    .status-error { background: #f8d7da; color: #721c24; }
+    .status-info { background: #d1ecf1; color: #0c5460; }
+    .flex { display: flex; }
+    .gap-8 { gap: 8px; }
+    .gap-16 { gap: 16px; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .justify-center { justify-content: center; }
+    .text-center { text-align: center; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-16 { margin-bottom: 16px; }
+    .mt-16 { margin-top: 16px; }
+    .w-full { width: 100%; }
+    .grid { display: grid; }
+    .grid-cols-2 { grid-template-columns: 1fr 1fr; }
+    .hidden { display: none; }
+    pre { background: #f5f5f5; padding: 12px; border-radius: 6px; overflow: auto; max-height: 300px; font-size: 12px; }
+    h3 { font-size: 24px; margin-bottom: 16px; }
+    h4 { font-size: 18px; margin-bottom: 12px; }
+    h5 { font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Tax calculation constants
+    const TAX_SLABS = {
+      new_regime: [
+        { min: 0, max: 300000, rate: 0 },
+        { min: 300001, max: 700000, rate: 0.05 },
+        { min: 700001, max: 1100000, rate: 0.10 },
+        { min: 1100001, max: 1500000, rate: 0.15 },
+        { min: 1500001, max: 2000000, rate: 0.20 },
+        { min: 2000001, max: 5000000, rate: 0.25 },
+        { min: 5000001, max: Infinity, rate: 0.30 },
+      ],
+      old_regime: [
+        { min: 0, max: 250000, rate: 0 },
+        { min: 250001, max: 500000, rate: 0.05 },
+        { min: 500001, max: 1000000, rate: 0.20 },
+        { min: 1000001, max: Infinity, rate: 0.30 },
+      ],
+    };
+
+    const DEDUCTIONS_MAX = {
+      '80C': 150000,
+      '80D': 25000,
+      '80E': null,
+      '80G': null,
+      '80CCD': 50000,
+      '80U': 75000,
+      '80TTA': 10000,
+    };
+
+    // Tax calculation helper
+    function calculateTax(income, deductions, regime) {
+      let totalIncome = income.salary + income.houseProperty + income.capitalGains + income.otherSources;
+      let totalDeductions = 0;
+      
+      Object.entries(deductions).forEach(([key, value]) => {
+        const maxLimit = DEDUCTIONS_MAX[key];
+        if (maxLimit) {
+          totalDeductions += Math.min(value || 0, maxLimit);
+        } else {
+          totalDeductions += value || 0;
+        }
+      });
+
+      let taxableIncome = regime === 'new_regime' ? totalIncome : Math.max(0, totalIncome - totalDeductions);
+      let tax = 0;
+      
+      TAX_SLABS[regime].forEach(slab => {
+        if (taxableIncome > slab.min) {
+          const taxable = Math.min(taxableIncome, slab.max) - slab.min;
+          if (taxable > 0) tax += taxable * slab.rate;
+        }
+      });
+
+      let surcharge = taxableIncome > 5000000 ? tax * 0.1 : 0;
+      let cess = (tax + surcharge) * 0.04;
+      let totalTax = tax + surcharge + cess;
+
+      return {
+        totalIncome,
+        taxableIncome,
+        totalDeductions,
+        tax: parseFloat(tax.toFixed(2)),
+        surcharge: parseFloat(surcharge.toFixed(2)),
+        cess: parseFloat(cess.toFixed(2)),
+        totalTax: parseFloat(totalTax.toFixed(2)),
+      };
+    }
+
+    // In-memory storage
+    let currentUser = null;
+    let allReturns = [];
+
+    // Auth Component
+    function AuthPage({ onLogin }) {
+      const [isLogin, setIsLogin] = useState(true);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [name, setName] = useState('');
+      const [pan, setPan] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        const user = { email, name, pan };
+        currentUser = user;
+        onLogin(user);
+      };
+
+      return (
+        <div className="container" style={{minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <div className="card" style={{maxWidth: '500px', width: '100%'}}>
+            <div className="card-header text-center">
+              <h3>ClearTax Clone - ITR Filing</h3>
+              <p>{isLogin ? 'Login' : 'Sign Up'} to continue</p>
+            </div>
+            <div className="card-body">
+              <form onSubmit={handleSubmit}>
+                {!isLogin && (
+                  <>
+                    <input className="form-control" type="text" placeholder="Full Name" value={name} onChange={e => setName(e.target.value)} required />
+                    <input className="form-control" type="text" placeholder="PAN" value={pan} onChange={e => setPan(e.target.value)} required />
+                  </>
+                )}
+                <input className="form-control" type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
+                <input className="form-control" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
+                <button className="btn btn-primary w-full mt-16" type="submit">{isLogin ? 'Login' : 'Sign Up'}</button>
+              </form>
+              <div className="text-center mt-16">
+                <button className="btn btn-outline" onClick={() => setIsLogin(!isLogin)}>
+                  {isLogin ? 'Create Account' : 'Already have account?'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Dashboard Component
+    function Dashboard({ user, onLogout, onCreateNew, onEdit, onDelete, onDownload }) {
+      return (
+        <div className="container">
+          <div className="flex justify-between items-center mb-16">
+            <h3>Welcome, {user.name || user.email}</h3>
+            <button className="btn btn-outline" onClick={onLogout}>Logout</button>
+          </div>
+          <div className="card">
+            <div className="card-header flex justify-between items-center">
+              <span>Your ITR Returns</span>
+              <button className="btn btn-primary" onClick={onCreateNew}>Create New Return</button>
+            </div>
+            <div className="card-body">
+              {allReturns.length === 0 ? (
+                <div className="status status-info">No returns yet. Click "Create New Return" to start.</div>
+              ) : (
+                allReturns.map(ret => (
+                  <div key={ret.id} className="card mb-8">
+                    <div className="card-body flex justify-between items-center">
+                      <div>
+                        <div><strong>Assessment Year:</strong> {ret.assessmentYear}</div>
+                        <div><strong>Status:</strong> <span className="status status-info">{ret.status}</span></div>
+                      </div>
+                      <div className="flex gap-8">
+                        <button className="btn btn-secondary" onClick={() => onEdit(ret)}>Edit</button>
+                        <button className="btn btn-outline" onClick={() => onDownload(ret)}>Download JSON</button>
+                        <button className="btn btn-outline" onClick={() => onDelete(ret.id)}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Mode Selector
+    function ModeSelector({ onSelect }) {
+      return (
+        <div className="container" style={{minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <div className="card" style={{maxWidth: '600px', width: '100%'}}>
+            <div className="card-header text-center">
+              <h3>Choose Filing Mode</h3>
+            </div>
+            <div className="card-body">
+              <button className="btn btn-primary w-full mb-16" onClick={() => onSelect('manual')}>Manual Entry</button>
+              <button className="btn btn-secondary w-full" onClick={() => onSelect('upload')}>Upload Files &amp; Auto-fill</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Manual Entry Form
+    function ManualForm({ onBack, onSubmit, initialData }) {
+      const steps = ['Personal Info', 'Income', 'Deductions', 'Bank Details', 'Review'];
+      const [step, setStep] = useState(0);
+      const [data, setData] = useState(initialData || {
+        personalInfo: { name: '', pan: '', dob: '', aadhaar: '', address: '' },
+        income: { salary: 0, houseProperty: 0, capitalGains: 0, otherSources: 0 },
+        deductions: { '80C': 0, '80D': 0, '80E': 0, '80G': 0, '80CCD': 0, '80U': 0, '80TTA': 0 },
+        bank: { bankAccount: '', ifsc: '', accountHolder: '' },
+      });
+
+      const updateField = (section, field, value) => {
+        setData(prev => ({
+          ...prev,
+          [section]: { ...prev[section], [field]: value }
+        }));
+      };
+
+      const renderStep = () => {
+        switch(step) {
+          case 0:
+            return (
+              <div>
+                <h4>Personal Information</h4>
+                <input className="form-control" type="text" placeholder="Full Name" value={data.personalInfo.name} onChange={e => updateField('personalInfo', 'name', e.target.value)} />
+                <input className="form-control" type="text" placeholder="PAN" value={data.personalInfo.pan} onChange={e => updateField('personalInfo', 'pan', e.target.value)} />
+                <input className="form-control" type="text" placeholder="Aadhaar" value={data.personalInfo.aadhaar} onChange={e => updateField('personalInfo', 'aadhaar', e.target.value)} />
+                <input className="form-control" type="date" placeholder="DOB" value={data.personalInfo.dob} onChange={e => updateField('personalInfo', 'dob', e.target.value)} />
+                <input className="form-control" type="text" placeholder="Address" value={data.personalInfo.address} onChange={e => updateField('personalInfo', 'address', e.target.value)} />
+              </div>
+            );
+          case 1:
+            return (
+              <div>
+                <h4>Income Details</h4>
+                <label className="form-label">Salary Income</label>
+                <input className="form-control" type="number" value={data.income.salary} onChange={e => updateField('income', 'salary', parseInt(e.target.value) || 0)} />
+                <label className="form-label">House Property Income</label>
+                <input className="form-control" type="number" value={data.income.houseProperty} onChange={e => updateField('income', 'houseProperty', parseInt(e.target.value) || 0)} />
+                <label className="form-label">Capital Gains</label>
+                <input className="form-control" type="number" value={data.income.capitalGains} onChange={e => updateField('income', 'capitalGains', parseInt(e.target.value) || 0)} />
+                <label className="form-label">Other Sources</label>
+                <input className="form-control" type="number" value={data.income.otherSources} onChange={e => updateField('income', 'otherSources', parseInt(e.target.value) || 0)} />
+              </div>
+            );
+          case 2:
+            return (
+              <div>
+                <h4>Deductions</h4>
+                {Object.keys(DEDUCTIONS_MAX).map(key => (
+                  <div key={key}>
+                    <label className="form-label">{key} {DEDUCTIONS_MAX[key] ? `(Max: ₹${DEDUCTIONS_MAX[key]})` : '(No limit)'}</label>
+                    <input className="form-control" type="number" value={data.deductions[key]} onChange={e => updateField('deductions', key, parseInt(e.target.value) || 0)} />
+                  </div>
+                ))}
+              </div>
+            );
+          case 3:
+            return (
+              <div>
+                <h4>Bank Details for Refund</h4>
+                <label className="form-label">Bank Account Number</label>
+                <input className="form-control" type="text" value={data.bank.bankAccount} onChange={e => updateField('bank', 'bankAccount', e.target.value)} />
+                <label className="form-label">IFSC Code</label>
+                <input className="form-control" type="text" value={data.bank.ifsc} onChange={e => updateField('bank', 'ifsc', e.target.value)} />
+                <label className="form-label">Account Holder Name</label>
+                <input className="form-control" type="text" value={data.bank.accountHolder} onChange={e => updateField('bank', 'accountHolder', e.target.value)} />
+              </div>
+            );
+          case 4:
+            return (
+              <div>
+                <h4>Review Your Data</h4>
+                <pre>{JSON.stringify(data, null, 2)}</pre>
+              </div>
+            );
+          default:
+            return null;
+        }
+      };
+
+      return (
+        <div className="container">
+          <div className="card" style={{maxWidth: '800px', margin: '20px auto'}}>
+            <div className="card-header flex justify-between items-center">
+              <button className="btn btn-outline" onClick={onBack}>Back</button>
+              <span>Step {step + 1} of {steps.length}: {steps[step]}</span>
+              <div style={{width: '80px'}}></div>
+            </div>
+            <div className="card-body">
+              {renderStep()}
+              <div className="flex justify-between mt-16">
+                {step > 0 && <button className="btn btn-secondary" onClick={() => setStep(step - 1)}>Previous</button>}
+                {step < steps.length - 1 ? (
+                  <button className="btn btn-primary" onClick={() => setStep(step + 1)}>Next</button>
+                ) : (
+                  <button className="btn btn-primary" onClick={() => onSubmit(data)}>Submit &amp; Calculate Tax</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // File Upload Component
+    function FileUpload({ onBack, onSubmit }) {
+      const [file, setFile] = useState(null);
+      const [extractedData, setExtractedData] = useState(null);
+      const [fileType, setFileType] = useState('form16');
+
+      const handleUpload = (e) => {
+        const uploadedFile = e.target.files[0];
+        if (uploadedFile) {
+          setFile(uploadedFile);
+          // Simulate extraction
+          setTimeout(() => {
+            setExtractedData({
+              personalInfo: { name: 'John Doe', pan: 'ABCDE1234F', dob: '1990-01-01', aadhaar: '123456789012', address: '123 Street' },
+              income: { salary: 900000, houseProperty: 60000, capitalGains: 15000, otherSources: 5000 },
+              deductions: { '80C': 150000, '80D': 25000, '80E': 0, '80G': 0, '80CCD': 50000, '80U': 0, '80TTA': 10000 },
+              bank: { bankAccount: '1234567890', ifsc: 'SBIN0001234', accountHolder: 'John Doe' },
+            });
+          }, 1000);
+        }
+      };
+
+      return (
+        <div className="container" style={{minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <div className="card" style={{maxWidth: '800px', width: '100%'}}>
+            <div className="card-header flex justify-between items-center">
+              <button className="btn btn-outline" onClick={onBack}>Back</button>
+              <span>Upload &amp; Auto-fill</span>
+              <div style={{width: '80px'}}></div>
+            </div>
+            <div className="card-body">
+              <h4>Upload Document</h4>
+              <select className="form-control" value={fileType} onChange={e => setFileType(e.target.value)}>
+                <option value="form16">Form 16 (Salary Certificate)</option>
+                <option value="form26as">Form 26AS (Tax Credit)</option>
+                <option value="capitalgains">Capital Gains Statement</option>
+                <option value="json">Previous Year ITR JSON</option>
+              </select>
+              <input className="form-control" type="file" onChange={handleUpload} />
+              {file && <div className="status status-success mt-16">File uploaded: {file.name}</div>}
+              {extractedData && (
+                <div className="mt-16">
+                  <h5>Extracted Data (Review &amp; Approve)</h5>
+                  <pre>{JSON.stringify(extractedData, null, 2)}</pre>
+                  <button className="btn btn-primary w-full mt-16" onClick={() => onSubmit(extractedData)}>Approve &amp; Calculate Tax</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Tax Calculation Display
+    function TaxCalculation({ data, onChoose, onBack }) {
+      const chartRef = useRef(null);
+      const [selectedRegime, setSelectedRegime] = useState(null);
+      
+      const oldTax = calculateTax(data.income, data.deductions, 'old_regime');
+      const newTax = calculateTax(data.income, data.deductions, 'new_regime');
+      const savings = Math.abs(oldTax.totalTax - newTax.totalTax);
+      const betterRegime = oldTax.totalTax < newTax.totalTax ? 'old' : 'new';
+
+      useEffect(() => {
+        if (chartRef.current && window.Chart) {
+          const ctx = chartRef.current.getContext('2d');
+          new window.Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: ['Old Regime', 'New Regime'],
+              datasets: [{
+                label: 'Total Tax',
+                data: [oldTax.totalTax, newTax.totalTax],
+                backgroundColor: ['#1FB8CD', '#FFC185']
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } }
+            }
+          });
+        }
+      }, []);
+
+      return (
+        <div className="container">
+          <div className="card" style={{maxWidth: '900px', margin: '20px auto'}}>
+            <div className="card-header flex justify-between items-center">
+              <button className="btn btn-outline" onClick={onBack}>Back</button>
+              <span>Tax Calculation - FY 2024-25</span>
+              <div style={{width: '80px'}}></div>
+            </div>
+            <div className="card-body">
+              <div style={{height: '300px', marginBottom: '20px'}}>
+                <canvas ref={chartRef}></canvas>
+              </div>
+              <div className="grid grid-cols-2 gap-16 mb-16">
+                <div className="card">
+                  <div className="card-body">
+                    <h5>Old Regime</h5>
+                    <div>Total Income: ₹{oldTax.totalIncome}</div>
+                    <div>Taxable Income: ₹{oldTax.taxableIncome}</div>
+                    <div>Tax: ₹{oldTax.tax}</div>
+                    <div>Surcharge: ₹{oldTax.surcharge}</div>
+                    <div>Cess: ₹{oldTax.cess}</div>
+                    <div><strong>Total Tax: ₹{oldTax.totalTax}</strong></div>
+                  </div>
+                </div>
+                <div className="card">
+                  <div className="card-body">
+                    <h5>New Regime</h5>
+                    <div>Total Income: ₹{newTax.totalIncome}</div>
+                    <div>Taxable Income: ₹{newTax.taxableIncome}</div>
+                    <div>Tax: ₹{newTax.tax}</div>
+                    <div>Surcharge: ₹{newTax.surcharge}</div>
+                    <div>Cess: ₹{newTax.cess}</div>
+                    <div><strong>Total Tax: ₹{newTax.totalTax}</strong></div>
+                  </div>
+                </div>
+              </div>
+              <div className="status status-success text-center">
+                <strong>Tax Savings: ₹{savings}</strong> (Recommended: {betterRegime === 'old' ? 'Old Regime' : 'New Regime'})
+              </div>
+              <div className="flex gap-16 justify-center mt-16">
+                <button className="btn btn-primary" onClick={() => { setSelectedRegime('old'); onChoose('old', oldTax); }}>Choose Old Regime</button>
+                <button className="btn btn-primary" onClick={() => { setSelectedRegime('new'); onChoose('new', newTax); }}>Choose New Regime</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // JSON Preview & Download
+    function JSONPreview({ data, regime, taxCalc, onBack }) {
+      const jsonData = {
+        assesseeInfo: data.personalInfo,
+        incomeDetails: data.income,
+        deductions: data.deductions,
+        taxCalculation: taxCalc,
+        refund: data.bank,
+        regime: regime
+      };
+
+      const fileName = `ITR-1_${data.personalInfo.pan}_FY2024-25.json`;
+
+      const downloadJSON = () => {
+        const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      return (
+        <div className="container">
+          <div className="card" style={{maxWidth: '900px', margin: '20px auto'}}>
+            <div className="card-header flex justify-between items-center">
+              <button className="btn btn-outline" onClick={onBack}>Back to Dashboard</button>
+              <span>Generated ITR-1 JSON</span>
+              <div style={{width: '80px'}}></div>
+            </div>
+            <div className="card-body">
+              <div className="mb-16">
+                <strong>File Name:</strong> {fileName}
+              </div>
+              <pre>{JSON.stringify(jsonData, null, 2)}</pre>
+              <button className="btn btn-primary w-full mt-16" onClick={downloadJSON}>Download JSON File</button>
+              <div className="mt-16 card" style={{background: '#e7f3ff'}}>
+                <div className="card-body">
+                  <h5>Next Steps:</h5>
+                  <ol style={{marginLeft: '20px'}}>
+                    <li>Download the JSON file using the button above</li>
+                    <li>Visit <a href="https://www.incometax.gov.in/iec/foportal/" target="_blank" style={{color: '#1FB8CD'}}>Income Tax e-Filing Portal</a></li>
+                    <li>Login and go to "File Income Tax Return"</li>
+                    <li>Select "Upload JSON" option</li>
+                    <li>Upload the downloaded file and submit</li>
+                    <li>Verify your return using Aadhaar OTP or EVC</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Main App
+    function App() {
+      const [page, setPage] = useState('auth');
+      const [user, setUser] = useState(null);
+      const [mode, setMode] = useState(null);
+      const [formData, setFormData] = useState(null);
+      const [selectedRegime, setSelectedRegime] = useState(null);
+      const [taxCalculation, setTaxCalculation] = useState(null);
+
+      const handleLogin = (userData) => {
+        setUser(userData);
+        setPage('dashboard');
+      };
+
+      const handleLogout = () => {
+        setUser(null);
+        setPage('auth');
+        currentUser = null;
+      };
+
+      const handleCreateNew = () => {
+        setFormData(null);
+        setMode(null);
+        setSelectedRegime(null);
+        setTaxCalculation(null);
+        setPage('mode');
+      };
+
+      const handleModeSelect = (selectedMode) => {
+        setMode(selectedMode);
+        setPage(selectedMode === 'manual' ? 'manual' : 'upload');
+      };
+
+      const handleFormSubmit = (data) => {
+        setFormData(data);
+        setPage('tax');
+      };
+
+      const handleRegimeChoice = (regime, taxCalc) => {
+        setSelectedRegime(regime);
+        setTaxCalculation(taxCalc);
+        
+        // Save to returns
+        const newReturn = {
+          id: Date.now().toString(),
+          userId: user.email,
+          assessmentYear: '2024-25',
+          status: 'ready',
+          ...formData,
+          regime,
+          taxCalculation: taxCalc,
+          createdAt: new Date().toISOString()
+        };
+        allReturns.push(newReturn);
+        
+        setPage('json');
+      };
+
+      const handleEdit = (returnData) => {
+        setFormData(returnData);
+        setPage('manual');
+      };
+
+      const handleDelete = (id) => {
+        if (window.confirm('Delete this return?')) {
+          allReturns = allReturns.filter(r => r.id !== id);
+          setPage('dashboard');
+        }
+      };
+
+      const handleDownload = (returnData) => {
+        setFormData(returnData);
+        setSelectedRegime(returnData.regime);
+        setTaxCalculation(returnData.taxCalculation);
+        setPage('json');
+      };
+
+      switch(page) {
+        case 'auth':
+          return <AuthPage onLogin={handleLogin} />;
+        case 'dashboard':
+          return <Dashboard user={user} onLogout={handleLogout} onCreateNew={handleCreateNew} onEdit={handleEdit} onDelete={handleDelete} onDownload={handleDownload} />;
+        case 'mode':
+          return <ModeSelector onSelect={handleModeSelect} />;
+        case 'manual':
+          return <ManualForm onBack={() => setPage('dashboard')} onSubmit={handleFormSubmit} initialData={formData} />;
+        case 'upload':
+          return <FileUpload onBack={() => setPage('dashboard')} onSubmit={handleFormSubmit} />;
+        case 'tax':
+          return <TaxCalculation data={formData} onChoose={handleRegimeChoice} onBack={() => setPage(mode === 'manual' ? 'manual' : 'upload')} />;
+        case 'json':
+          return <JSONPreview data={formData} regime={selectedRegime} taxCalc={taxCalculation} onBack={() => setPage('dashboard')} />;
+        default:
+          return <div>Loading...</div>;
+      }
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
