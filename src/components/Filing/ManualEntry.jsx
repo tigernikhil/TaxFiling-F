@@ -2,7 +2,24 @@
 import React, { useState, useEffect } from 'react';
 import { returnsAPI } from '../../services/api';
 
-export default function ManualEntry({ returnId, onNext, defaultValues, onFormChange  }) {
+// Merge helper: shallow merge only known sections and convert numeric strings
+function mergeValues(target, source) {
+  if (!source) return target;
+  const out = { ...target };
+  for (const key of Object.keys(source)) {
+    const val = source[key];
+    if (val === undefined || val === null) continue;
+    // If it's an object and both are objects, merge shallowly
+    if (typeof val === 'object' && !Array.isArray(val) && typeof out[key] === 'object') {
+      out[key] = { ...out[key], ...val };
+    } else {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
+export default function ManualEntry({ returnId, onNext, defaultValues, onFormChange, extractedData }) {
   const [formData, setFormData] = useState({
     personalInfo: {
       name: '',
@@ -14,22 +31,33 @@ export default function ManualEntry({ returnId, onNext, defaultValues, onFormCha
       email: ''
     },
     incomeDetails: {
+      employerName: '',
+      employerPAN: '',
       salary: 0,
+      taxableSalary: 0,
+      exemptAllowances: 0,
+      professionalTax: 0,
       housePropertyIncome: 0,
       capitalGains: 0,
-      otherSources: 0
+      otherSources: 0,
+      bankInterest: 0
     },
     taxCredits: {
       tdsSalary: 0,
       tdsOtherSources: 0,
-      advanceTax: 0
+      advanceTax: 0,
+      selfAssessmentTax: 0
     },
     deductions: {
       section80C: 0,
       section80D: 0,
       section80E: 0,
       section80G: 0,
-      section80CCD: 0
+      section80CCD: 0,
+      section80U: 0,
+      section80TTA: 0,
+      section80TTB: 0,
+      otherDeductions: 0
     },
     refundDetails: {
       accountHolder: '',
@@ -39,11 +67,74 @@ export default function ManualEntry({ returnId, onNext, defaultValues, onFormCha
     }
   });
 
+  // Apply server default values (existing saved return)
   useEffect(() => {
-  if (defaultValues) {
-    setFormData(defaultValues);
-  }
-}, [defaultValues]);
+    if (defaultValues) {
+      // Only copy known sections to avoid overwriting other server fields
+      setFormData(prev => {
+        const merged = { ...prev };
+        if (defaultValues.personalInfo) merged.personalInfo = mergeValues(merged.personalInfo, defaultValues.personalInfo);
+        if (defaultValues.incomeDetails) merged.incomeDetails = mergeValues(merged.incomeDetails, defaultValues.incomeDetails);
+        if (defaultValues.taxCredits) merged.taxCredits = mergeValues(merged.taxCredits, defaultValues.taxCredits);
+        if (defaultValues.deductions) merged.deductions = mergeValues(merged.deductions, defaultValues.deductions);
+        if (defaultValues.refundDetails) merged.refundDetails = mergeValues(merged.refundDetails, defaultValues.refundDetails);
+        return merged;
+      });
+    }
+  }, [defaultValues]);
+
+  // When extractedData is provided (from upload), map common fields into the manual form
+  useEffect(() => {
+    if (!extractedData) return;
+
+    setFormData(prev => {
+      const next = { ...prev };
+
+      // Personal info
+      if (extractedData.personalInfo) {
+        next.personalInfo = mergeValues(next.personalInfo, extractedData.personalInfo);
+      }
+
+      // Income mapping: either top-level income or extractedData.income
+      const incomeSrc = extractedData.income || extractedData.incomeDetails || extractedData;
+      if (incomeSrc) {
+        const incomeMap = {};
+        if (incomeSrc.salary !== undefined) incomeMap.salary = Number(incomeSrc.salary) || 0;
+        if (incomeSrc.taxableSalary !== undefined) incomeMap.taxableSalary = Number(incomeSrc.taxableSalary) || incomeMap.salary || 0;
+        if (incomeSrc.capitalGains !== undefined) incomeMap.capitalGains = Number(incomeSrc.capitalGains) || 0;
+        if (incomeSrc.otherSources !== undefined) incomeMap.otherSources = Number(incomeSrc.otherSources) || 0;
+        if (incomeSrc.housePropertyIncome !== undefined) incomeMap.housePropertyIncome = Number(incomeSrc.housePropertyIncome) || 0;
+        if (incomeSrc.bankInterest !== undefined) incomeMap.bankInterest = Number(incomeSrc.bankInterest) || 0;
+        if (incomeSrc.employerName) incomeMap.employerName = incomeSrc.employerName;
+        if (incomeSrc.employerPAN) incomeMap.employerPAN = incomeSrc.employerPAN;
+        next.incomeDetails = mergeValues(next.incomeDetails, incomeMap);
+      }
+
+      // Tax credits / TDS
+      if (extractedData.taxCredits) {
+        const tc = {};
+        if (extractedData.taxCredits.tdsSalary !== undefined) tc.tdsSalary = Number(extractedData.taxCredits.tdsSalary) || 0;
+        if (extractedData.taxCredits.tdsOtherSources !== undefined) tc.tdsOtherSources = Number(extractedData.taxCredits.tdsOtherSources) || 0;
+        if (extractedData.taxCredits.advanceTax !== undefined) tc.advanceTax = Number(extractedData.taxCredits.advanceTax) || 0;
+        next.taxCredits = mergeValues(next.taxCredits, tc);
+      }
+
+      // Deductions
+      if (extractedData.deductions) {
+        next.deductions = mergeValues(next.deductions, extractedData.deductions);
+      }
+
+      // Refund / bank
+      if (extractedData.refundDetails) {
+        next.refundDetails = mergeValues(next.refundDetails, extractedData.refundDetails);
+      }
+
+      // Some upload endpoints return a flat extractedData.personalInfo / incomeDetails inside response.extractedData
+      // Additionally, if uploadedFiles array exists on server defaultValues, prefer that too (handled by defaultValues useEffect)
+
+      return next;
+    });
+  }, [extractedData]);
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -58,7 +149,10 @@ export default function ManualEntry({ returnId, onNext, defaultValues, onFormCha
       for (let i = 0; i < keys.length - 1; i++) {
         current = current[keys[i]];
       }
-      current[keys[keys.length - 1]] = isNaN(value) ? value : parseInt(value);
+      // if numeric field, convert
+      const finalKey = keys[keys.length - 1];
+      const isNumber = e.target.type === 'number';
+      current[finalKey] = isNumber ? (value === '' ? '' : Number(value)) : value;
       onFormChange?.(newData);
       return newData;
     });

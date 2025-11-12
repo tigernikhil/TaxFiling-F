@@ -1,6 +1,6 @@
 // src/components/Filing/FilingPage.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { returnsAPI } from '../../services/api';
 import ManualEntry from './ManualEntry';
 import FileUpload from './FileUpload';
@@ -15,6 +15,8 @@ export default function FilingPage() {
   const [filingMode, setFilingMode] = useState(null);
   const [loading, setLoading] = useState(false);
   const [extractedData, setExtractedData] = useState(null);
+  const [returnData, setReturnData] = useState(null);
+  const location = useLocation();
 
   const handleModeSelect = (mode) => {
     setFilingMode(mode);
@@ -24,6 +26,25 @@ export default function FilingPage() {
       setCurrentStep('upload');
     }
   };
+
+  useEffect(() => {
+    // If navigated here with a state asking to open manual tab (from upload), honour it
+    if (location.state?.activeTab === 'manual') {
+      setCurrentStep('manual');
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    async function fetchReturn() {
+      try {
+        const response = await returnsAPI.getOne(returnId);
+        setReturnData(response.data);
+      } catch (err) {
+        // ignore for now
+      }
+    }
+    fetchReturn();
+  }, [returnId]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -88,6 +109,8 @@ export default function FilingPage() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Fill Your Tax Information</h2>
             <ManualEntry
               returnId={returnId}
+              defaultValues={returnData}
+              extractedData={extractedData}
               onNext={() => setCurrentStep('comparison')}
             />
           </div>
