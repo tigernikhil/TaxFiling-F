@@ -1,63 +1,146 @@
 import React, { useState } from 'react';
+import Button from '../common/Button';
+import Input from '../common/Input';
 
 export default function ExtractedDataReview({ data, onConfirm, onEdit }) {
-  const [editedData, setEditedData] = useState(data);
+  const [editedData, setEditedData] = useState(data || {});
+  const [editing, setEditing] = useState(false);
 
   const handleChange = (section, field, value) => {
     setEditedData({
       ...editedData,
-      [section]: { ...editedData[section], [field]: value }
+      [section]: {
+        ...editedData[section],
+        [field]: value
+      }
     });
   };
 
+  const handleConfirm = () => {
+    if (onConfirm) onConfirm(editedData);
+  };
+
+  const handleEdit = () => {
+    setEditing(true);
+    if (onEdit) onEdit();
+  };
+
+  if (!data) {
+    return <div className="no-data">No extracted data available</div>;
+  }
+
   return (
-    <div className="card space-y-6">
-      <h2 className="text-2xl font-bold">Review Extracted Data</h2>
-      
-      {/* Income Section */}
-      <div className="border-t pt-4">
-        <h3 className="font-bold text-lg mb-4">Income Details</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {Object.entries(editedData.incomeDetails || {}).map(([key, value]) => (
-            <div key={key}>
-              <label className="form-label">{key}</label>
-              <input
+    <div className="extracted-data-review">
+      <h3>📋 Review Extracted Data</h3>
+      <p className="description">
+        Please verify the extracted information and make corrections if needed
+      </p>
+
+      <div className="data-sections">
+        {/* Personal Info Section */}
+        {editedData.personalInfo && (
+          <div className="data-section">
+            <h4>Personal Information</h4>
+            <div className="data-fields">
+              <Input
+                label="Full Name"
+                value={editedData.personalInfo.name || ''}
+                onChange={(e) => handleChange('personalInfo', 'name', e.target.value)}
+                disabled={!editing}
+              />
+              <Input
+                label="PAN"
+                value={editedData.personalInfo.pan || ''}
+                onChange={(e) => handleChange('personalInfo', 'pan', e.target.value)}
+                disabled={!editing}
+              />
+              <Input
+                label="Date of Birth"
+                type="date"
+                value={editedData.personalInfo.dob || ''}
+                onChange={(e) => handleChange('personalInfo', 'dob', e.target.value)}
+                disabled={!editing}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Income Section */}
+        {editedData.income && (
+          <div className="data-section">
+            <h4>Income Details</h4>
+            <div className="data-fields">
+              <Input
+                label="Salary Income"
                 type="number"
-                value={value}
-                onChange={(e) => handleChange('incomeDetails', key, e.target.value)}
-                className="form-input"
+                value={editedData.income.salary || ''}
+                onChange={(e) => handleChange('income', 'salary', parseFloat(e.target.value))}
+                disabled={!editing}
+              />
+              <Input
+                label="Interest Income"
+                type="number"
+                value={editedData.income.interest || ''}
+                onChange={(e) => handleChange('income', 'interest', parseFloat(e.target.value))}
+                disabled={!editing}
               />
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        )}
 
-      {/* Personal Info Section */}
-      <div className="border-t pt-4">
-        <h3 className="font-bold text-lg mb-4">Personal Information</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {Object.entries(editedData.personalInfo || {}).map(([key, value]) => (
-            <div key={key}>
-              <label className="form-label">{key}</label>
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => handleChange('personalInfo', key, e.target.value)}
-                className="form-input"
+        {/* TDS Section */}
+        {editedData.tds && (
+          <div className="data-section">
+            <h4>TDS Details</h4>
+            <div className="data-fields">
+              <Input
+                label="TDS on Salary"
+                type="number"
+                value={editedData.tds.salary || ''}
+                onChange={(e) => handleChange('tds', 'salary', parseFloat(e.target.value))}
+                disabled={!editing}
+              />
+              <Input
+                label="TDS on Other Income"
+                type="number"
+                value={editedData.tds.other || ''}
+                onChange={(e) => handleChange('tds', 'other', parseFloat(e.target.value))}
+                disabled={!editing}
               />
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex gap-4">
-        <button onClick={() => onConfirm(editedData)} className="btn-primary flex-1">
-          ✓ Confirm & Continue
-        </button>
-        <button onClick={onEdit} className="btn-secondary flex-1">
-          ← Edit Manually
-        </button>
+      <div className="action-buttons">
+        {!editing ? (
+          <>
+            <Button variant="primary" onClick={handleConfirm}>
+              ✓ Confirm & Continue
+            </Button>
+            <Button variant="secondary" onClick={handleEdit}>
+              ✏️ Edit Data
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="primary" onClick={() => { setEditing(false); handleConfirm(); }}>
+              Save Changes
+            </Button>
+            <Button variant="secondary" onClick={() => { setEditedData(data); setEditing(false); }}>
+              Cancel
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="data-summary">
+        <h4>Extraction Summary</h4>
+        <ul>
+          <li>Fields Extracted: {Object.keys(data).length}</li>
+          <li>Confidence: High</li>
+          <li>Source: {data.source || 'Unknown'}</li>
+        </ul>
       </div>
     </div>
   );

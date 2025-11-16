@@ -1,0 +1,41 @@
+/* Dashboard Page */
+.dashboard-page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Personal Info Page */
+.personal-info-page {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Income Page */
+.income-page .tabs {
+  display: flex;
+  gap: 10px;
+  border-bottom: 2px solid #ddd;
+  margin-bottom: 20px;
+}
+
+.income-page .tab {
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+}
+
+.income-page .tab.active {
+  border-bottom-color: #007bff;
+  color: #007bff;
+}
+
+/* Deductions Page */
+.deductions-page .tabs {
+  display: flex;
+  gap: 10px;
+  border-bottom: 2px solid #ddd;
+  margin-bottom: 20px;
+}
